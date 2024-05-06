@@ -4,7 +4,7 @@
         "resolveJsonModule": true
     },
     "include": [
-        "tutorial.ts"
+        "swapToken.ts"
     ],
     "exclude": [
         "node_modules"

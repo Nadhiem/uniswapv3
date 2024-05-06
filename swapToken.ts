@@ -1,4 +1,4 @@
-// Command-line utilities
+// Importing necessary libraries and configurations
 import yargs from "yargs/yargs"
 import { hideBin } from 'yargs/helpers'
 import 'dotenv/config'
@@ -15,6 +15,10 @@ import { BigNumber } from '@ethersproject/bignumber';
 
 import ERC20_abi from "./ERC20_abi.json"
 
+/**
+ * Main function orchestrating the token swap using command-line arguments.
+ */
+
 async function main() {
     const options = await yargs(hideBin(process.argv))
         .usage("Swaps tokens, based on Uniswap V3 SDK")
@@ -26,34 +30,32 @@ async function main() {
         .argv;
 
 
-    const chainId = parseInt(options.chainId);  // chainId must be integer
+    const chainId = parseInt(options.chainId);  
     const walletAddress = options.walletAddress;
     const tokenInContractAddress = options.tokenInAddress;
     const tokenOutContractAddress = options.tokenOutAddress;
     const inAmountStr = options.amountIn;
-    const { API_URL, PRIVATE_KEY } = process.env;
 
-    // ============= PART 1 --- connect to blockchain and get token balances
+    // Setup and connect to blockchain using Ethereum provider
+    const { API_URL, PRIVATE_KEY } = process.env;
     console.log("Connecting to blockchain, loading token balances...");
     console.log('');
 
     // Ethers.js provider to access blockchain
-    // As we're using Alchemy, it is JsonRpcProvider
-    // In case of React app + MetaMask it should be initialized as "new ethers.providers.Web3Provider(window.ethereum);"
     const provider = new ethers.providers.JsonRpcProvider(API_URL, chainId);
-
-
     const signer = new ethers.Wallet(PRIVATE_KEY!, provider);
 
-    // // In case of React + Metamask it should be initialized as "provider.getSigner();"
-    // // as we already have signer provided by Metamask
-    // var signer = wallet.provider.getSigner(wallet.address);
-
-
-    // create token contracts and related objects
+    // Initialize token contracts
     const contractIn = new ethers.Contract(tokenInContractAddress, ERC20_abi, signer);
     const contractOut = new ethers.Contract(tokenOutContractAddress, ERC20_abi, signer);
 
+    // Fetch and display token balances before swap 
+
+    /**
+ * Retrieves token balances for a given contract.
+ * @param contract {ethers.Contract} The contract instance of the token.
+ * @returns {Promise<[Token, ethers.BigNumber]>} A promise that resolves to the Token instance and balance.
+ */
     const getTokenAndBalance = async function (contract: ethers.Contract) {
         var [dec, symbol, name, balance] = await Promise.all(
             [
@@ -72,17 +74,19 @@ async function main() {
     console.log(`Wallet ${walletAddress} balances:`);
     console.log(`   Input: ${tokenIn.symbol} (${tokenIn.name}): ${ethers.utils.formatUnits(balanceTokenIn, tokenIn.decimals)}`);
     console.log(`   Output: ${tokenOut.symbol} (${tokenOut.name}): ${ethers.utils.formatUnits(balanceTokenOut, tokenOut.decimals)}`);
-    console.log("");
-
+   
     // ============= PART 2 --- get Uniswap pool for pair TokenIn-TokenOut
     console.log("Loading pool information...");
-
-    // this is Uniswap factory, same address on all chains
-    // (from https://docs.uniswap.org/protocol/reference/deployments)
     const UNISWAP_FACTORY_ADDRESS = '0x1F98431c8aD98523631AE4a59f267346ea31F984';
     const factoryContract = new ethers.Contract(UNISWAP_FACTORY_ADDRESS, IUniswapV3Factory.abi, provider);
 
-    // loading pool smart contract address
+    /**
+    * Fetches the Uniswap pool address for the given token pair.
+    * @param provider {ethers.providers.JsonRpcProvider} The ethers provider.
+    * @param tokenInAddress {string} The address of the input token.
+    * @param tokenOutAddress {string} The address of the output token.
+    * @returns {Promise<string>} A promise that resolves to the pool address.
+    */
     const poolAddress = await factoryContract.getPool(
         tokenIn.address,
         tokenOut.address,
@@ -151,9 +155,6 @@ async function main() {
     console.log("Loading up quote for a swap...");
 
     const amountIn = ethers.utils.parseUnits(inAmountStr, tokenIn.decimals);
-
-    // this is Uniswap quoter smart contract, same address on all chains
-    // (from https://docs.uniswap.org/protocol/reference/deployments)
     const UNISWAP_QUOTER_ADDRESS = '0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6'
     const quoterContract = new ethers.Contract(UNISWAP_QUOTER_ADDRESS, QuoterABI.abi, provider);
 
@@ -188,13 +189,6 @@ async function main() {
         },
         // router config
         {
-            // only one direct swap for a reason – 2 swaps thru DAI (USDT->DAI->WETH) didn't work on Rinkeby
-            // There was an overflow problem https://rinkeby.etherscan.io/tx/0xaed297f2f51f17b329ce755b11635980268f3fc88aae10e78cf59f2c6e65ca7f
-            // The was DAI balance for UniswapV2Pair was greater than 2^112-1 (https://github.com/Uniswap/v2-core/blob/master/contracts/UniswapV2Pair.sol)
-            // UniswapV2Pair – https://rinkeby.etherscan.io/address/0x8b22f85d0c844cf793690f6d9dfe9f11ddb35449
-            // WETH – https://rinkeby.etherscan.io/address/0xc778417e063141139fce010982780140aa0cd5ab#readContract
-            // DAI – https://rinkeby.etherscan.io/address/0xc7ad46e0b8a400bb3c915120d284aafba8fc4735#readContract (balance of UniswapV2Pair more than 2^112-1)
-
             maxSwapsPerPath: 1 // remove this if you want multi-hop swaps as well.
         }
     );
@@ -218,15 +212,12 @@ async function main() {
     // address of a swap router
     const V3_SWAP_ROUTER_ADDRESS = '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45';
 
-    // For Metamask it will be just "await contractIn.approve(V3_SWAP_ROUTER_ADDRESS, amountIn);"
-
     // here we just create a transaction object (not sending it to blockchain).
     const approveTxUnsigned = await contractIn.populateTransaction.approve(V3_SWAP_ROUTER_ADDRESS, amountIn);
-    // by default chainid is not set https://ethereum.stackexchange.com/questions/94412/valueerror-code-32000-message-only-replay-protected-eip-155-transac
     approveTxUnsigned.chainId = chainId;
-    // estimate gas required to make approve call (not sending it to blockchain either)
     approveTxUnsigned.gasLimit = await contractIn.estimateGas.approve(V3_SWAP_ROUTER_ADDRESS, amountIn);
-    // suggested gas price (increase if you want faster execution)
+
+    // suggested gas price 
     approveTxUnsigned.gasPrice = await provider.getGasPrice();
     // nonce is the same as number previous transactions
     approveTxUnsigned.nonce = await provider.getTransactionCount(walletAddress);
@@ -250,10 +241,7 @@ async function main() {
         value: value,
         from: walletAddress,
         gasPrice: route.gasPriceWei,
-
         // route.estimatedGasUsed might be too low!
-        // most of swaps I tested fit into 300,000 but for some complex swaps this gas is not enough.
-        // Loot at etherscan/polygonscan past results.
         gasLimit: BigNumber.from("800000")
     };
 
